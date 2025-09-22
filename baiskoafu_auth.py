@@ -76,10 +76,14 @@ def login(username, password, query=""):
             ids = resp.post(search_url, data=SEARCH_DATA, headers=ID_AUTH)
             dummy = json.loads(ids.text)
             
-            I = ['ID', 'TYPE', 'FILE NAME', 'CONTENT_URL']
-            print(f'{I[0]:<5} | {I[1]:<6} | {I[2]:<30} | {I[3]:<20}')
-            print('_' * 100)
+            I = ['ID', 'TYPE', 'CATEGORY', 'EPISODE', 'SERIES/FILM', 'FILE NAME']
+            print(f'{I[0]:<5} | {I[1]:<15} | {I[2]:<15} | {I[3]:<15} | {I[4]:<20} | {I[5]:<30}')
+            print('_' * 150)
             search_result = 0
+
+            # Print the raw response for debugging purposes
+            with open("raw_response.txt", "w") as file:
+                file.write(json.dumps(dummy, indent=4))
 
             for i in dummy['data']:
 
@@ -91,6 +95,39 @@ def login(username, password, query=""):
                         CONTENT_TYPE    = i['content_type']
                         ITEM_CONTENT_M	= i['item_content_url']
                         
+                        # Get the first category name if available
+                        try:
+                            ITEM_CATEGORY = i['categories'][0]['name'] if i.get('categories') and len(i['categories']) > 0 else 'Unknown'
+                        except (IndexError, KeyError, TypeError):
+                            ITEM_CATEGORY = 'Unknown'
+                        
+                        # Get episode information
+                        try:
+                            # Extract episode number from title if it starts with "Episode"
+                            if i['item_title'].lower().startswith('episode'):
+                                episode_parts = i['item_title'].split()
+                                if len(episode_parts) > 1:
+                                    ITEM_EPISODE = episode_parts[1].rstrip(':')
+                                else:
+                                    ITEM_EPISODE = 'N/A'
+                            else:
+                                ITEM_EPISODE = 'N/A'
+                        except:
+                            ITEM_EPISODE = 'N/A'
+                        
+                        # Get series/film name
+                        try:
+                            # Try to get series name first
+                            if 'series' in i and i['series'] and 'series_name' in i['series']:
+                                ITEM_SERIES = i['series']['series_name'][0:20]
+                            # Fallback to album_id or other identifier
+                            elif 'album_id' in i and i['album_id']:
+                                ITEM_SERIES = f"Album {i['album_id']}"
+                            else:
+                                ITEM_SERIES = 'N/A'
+                        except:
+                            ITEM_SERIES = 'N/A'
+                        
                         # Truncate URL for display
 
                         if CONTENT_TYPE == "audio":
@@ -99,11 +136,8 @@ def login(username, password, query=""):
                             CONTENT_URL_DISPLAY = VIDEO_CDN+ITEM_CONTENT_M
                         
                         ITEM_TITLE = ITEM_TITLE if len(ITEM_TITLE) < 30 else ITEM_TITLE + "..."
-                        print(f'{ITEM_ID :<5} | {CONTENT_TYPE :<6} | {ITEM_TITLE :<30} | {CONTENT_URL_DISPLAY :<20}')
-                        
-                        # Print full URL on next line if it's long
-                        # if len(ITEM_CONTENT_M) > 20:
-                        #     print(f'      | Full URL: {ITEM_CONTENT_M}')
+                        ITEM_TITLE = ITEM_TITLE if len(ITEM_TITLE) < 30 else ITEM_TITLE + "..."
+                        print(f'{ITEM_ID :<5} | {CONTENT_TYPE :<15} | {ITEM_CATEGORY :<15} | {ITEM_EPISODE :<15} | {ITEM_SERIES :<20} | {ITEM_TITLE :<30}')
                         
                         search_result += 1
 
