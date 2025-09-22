@@ -76,9 +76,9 @@ def login(username, password, query=""):
             ids = resp.post(search_url, data=SEARCH_DATA, headers=ID_AUTH)
             dummy = json.loads(ids.text)
             
-            I = ['ID', 'TYPE', 'CATEGORY', 'EPISODE', 'SERIES/FILM', 'FILE NAME']
-            print(f'{I[0]:<5} | {I[1]:<15} | {I[2]:<15} | {I[3]:<15} | {I[4]:<20} | {I[5]:<30}')
-            print('_' * 150)
+            I = ['ID', 'TYPE', 'CATEGORY', 'EPISODE', 'SERIES/FILM', 'FILE NAME', 'STATUS']
+            print(f'{I[0]:<5} | {I[1]:<15} | {I[2]:<15} | {I[3]:<15} | {I[4]:<20} | {I[5]:<25} | {I[6]:<15}')
+            print('_' * 160)
             search_result = 0
 
             # Print the raw response for debugging purposes
@@ -128,6 +128,29 @@ def login(username, password, query=""):
                         except:
                             ITEM_SERIES = 'N/A'
                         
+                        # Check encryption and premium status
+                        try:
+                            is_encrypted = i.get('is_encrypted', False)
+                            is_verimatrix = i.get('is_verimatrix_encrypted', False)
+                            premium_status = i.get('premium_status', 'Free')
+                            android_url = i.get('android_content_url', '')
+                            
+                            # Determine status
+                            if is_encrypted or is_verimatrix:
+                                if premium_status == 'Premium':
+                                    ITEM_STATUS = 'ENCRYPTED+PREM'
+                                else:
+                                    ITEM_STATUS = 'ENCRYPTED'
+                            elif premium_status == 'Premium':
+                                ITEM_STATUS = 'PREMIUM'
+                            else:
+                                ITEM_STATUS = 'FREE'
+                        except:
+                            ITEM_STATUS = 'UNKNOWN'
+                            is_encrypted = False
+                            is_verimatrix = False
+                            android_url = ''
+                        
                         # Truncate URL for display
 
                         if CONTENT_TYPE == "audio":
@@ -135,9 +158,14 @@ def login(username, password, query=""):
                         else:
                             CONTENT_URL_DISPLAY = VIDEO_CDN+ITEM_CONTENT_M
                         
-                        ITEM_TITLE = ITEM_TITLE if len(ITEM_TITLE) < 30 else ITEM_TITLE + "..."
-                        ITEM_TITLE = ITEM_TITLE if len(ITEM_TITLE) < 30 else ITEM_TITLE + "..."
-                        print(f'{ITEM_ID :<5} | {CONTENT_TYPE :<15} | {ITEM_CATEGORY :<15} | {ITEM_EPISODE :<15} | {ITEM_SERIES :<20} | {ITEM_TITLE :<30}')
+                        ITEM_TITLE = ITEM_TITLE if len(ITEM_TITLE) < 25 else ITEM_TITLE[:25] + "..."
+                        print(f'{ITEM_ID :<5} | {CONTENT_TYPE :<15} | {ITEM_CATEGORY :<15} | {ITEM_EPISODE :<15} | {ITEM_SERIES :<20} | {ITEM_TITLE :<25} | {ITEM_STATUS :<15}')
+                        
+                        # Show warning for encrypted content
+                        # if is_encrypted or is_verimatrix:
+                        #     print(f'      ⚠️  WARNING: This content is encrypted - download quality will be very poor (2-sec clips, ~20kbps)')
+                        #     if android_url:
+                        #         print(f'      📱 DASH URL available: {android_url[:60]}...')
                         
                         search_result += 1
 
@@ -174,6 +202,26 @@ def login(username, password, query=""):
                             ITEM_CONTENT_M	= i['item_content_url']
 
                             if choice == int(ITEM_ID):
+                                
+                                # Check if content is encrypted before downloading
+                                is_encrypted = i.get('is_encrypted', False)
+                                is_verimatrix = i.get('is_verimatrix_encrypted', False)
+                                premium_status = i.get('premium_status', 'Free')
+                                
+                                if is_encrypted or is_verimatrix:
+                                    print(f"\n⚠️  WARNING: '{ITEM_TITLE}' is ENCRYPTED!")
+                                    print("   This will result in very poor quality:")
+                                    print("   • Video duration: ~2 seconds only")
+                                    print("   • Bitrate: ~20kbps (extremely low)")
+                                    print("   • Content may be unwatchable")
+                                    if premium_status == 'Premium':
+                                        print("   • Requires Premium subscription")
+                                    
+                                    confirm = input("\nDo you still want to download this encrypted content? (y/N): ")
+                                    if confirm.lower() != 'y':
+                                        print("Download cancelled. Choose a different item.")
+                                        user_choice()
+                                        return
 
                                 if CONTENT_TYPE == "audio":
                                     choice_list.append(str(ITEM_TITLE)+'.mp3')
@@ -198,8 +246,16 @@ def login(username, password, query=""):
                     else:
                         cdn_url = f"{VIDEO_CDN}{choice_list[2]}"
                     
-                    resp_cdn = requests.get(cdn_url)
-                    resp_cdn_data = resp_cdn.text.split('\n')
+                    try:
+                        resp_cdn = requests.get(cdn_url)
+                        resp_cdn.raise_for_status()  # Raise exception for bad status codes
+                        resp_cdn_data = resp_cdn.text.split('\n')
+                    except requests.RequestException as e:
+                        print(f"Error accessing content URL: {e}")
+                        print("This might be encrypted content or require special authentication.")
+                        user_choice()
+                        return
+                    
                     high_med_low = []
                     base_url = cdn_url.split('/')
                     base_url.pop(-1)
@@ -208,6 +264,13 @@ def login(username, password, query=""):
                     for m3 in resp_cdn_data:
                         if m3.endswith('m3u8'):
                             high_med_low.append(m3)
+
+                    if len(high_med_low) == 0:
+                        print("⚠️  No downloadable streams found!")
+                        print("This content might be encrypted or require special decryption.")
+                        print("Try selecting non-encrypted content instead.")
+                        user_choice()
+                        return
 
                     # Always try to get the highest quality available
                     if len(high_med_low) > 0:
@@ -221,9 +284,14 @@ def login(username, password, query=""):
                             # Fallback to highest available if requested quality not found
                             base_url += high_med_low[0]         #  -- > fallback to highest
 
+                    print(f"Downloading from: {base_url}")
                     baiskoafu_download_manager.get_ts_files(base_url)
                     baiskoafu_download_manager.download()
                     baiskoafu_download_manager.combine(filename)
+                else:
+                    print("❌ Invalid selection or item not found!")
+                    print("Please check the ID and try again.")
+                    user_choice()
 
             user_choice()
 
